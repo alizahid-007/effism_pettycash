@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard - EFFISM 1.5</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <style>
+    body {
+      background-color: #f6fbfd;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    .navbar {
+      background-color: #003c4f;
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 15px 30px;
+    }
+
+    .navbar h2 {
+      font-size: 1.5rem;
+      margin: 0;
+      color: #ffffff;
+    }
+
+    .navbar button {
+      background-color: #d9534f;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 15px;
+      cursor: pointer;
+    }
+
+    .navbar button:hover {
+      background-color: #c9302c;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 20px;
+      text-align: center;
+    }
+
+    h3#welcome {
+      color: #003c4f;
+      font-weight: 600;
+      margin-bottom: 30px;
+    }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 20px;
+    }
+
+    .card-btn {
+      background-color: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+      padding: 30px 20px;
+      transition: all 0.3s ease;
+      border: 2px solid transparent;
+    }
+
+    .card-btn:hover {
+      border-color: #00a5a8;
+      transform: translateY(-3px);
+    }
+
+    .card-btn h5 {
+      color: #003c4f;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    .btn-teal {
+      background-color: #00a5a8;
+      border: none;
+      color: white;
+      border-radius: 6px;
+      padding: 8px 15px;
+    }
+
+    .btn-teal:hover {
+      background-color: #008b8f;
+    }
+  </style>
+</head>
+
+<body onload="loadDashboard()">
+
+  <nav class="navbar">
+    <h2>EFFISM 1.5 Dashboard</h2>
+    <button onclick="logout()">Logout</button>
+  </nav>
+
+  <div class="container">
+    <h3 id="welcome"></h3>
+    <div id="dashboard-actions" class="dashboard-grid"></div>
+  </div>
+
+  <script src="js/app.js"></script>
+
+  <script>
+    function loadDashboard() {
+
+      const user = getUser();
+      if (!user) {
+        window.location.href = "index.html";
+        return;
+      }
+
+      // Build welcome text
+      const fullName = user.full_name || user.username;
+      const roleName = user.role_name || user.role;
+
+      document.getElementById("welcome").textContent =
+        `Welcome, ${fullName} (${roleName.toUpperCase()})`;
+
+      const dashContainer = document.getElementById("dashboard-actions");
+      dashContainer.innerHTML = "";
+
+      // Normalize role key
+      const roleKey = String(roleName).trim().toLowerCase();
+
+      // Mapping of available dashboard actions
+      const roleActions = {
+
+admin: [
+  { text: "Workflow Builder", link: "flow-builder.html" },
+  { text: "All Claims", link: "listing.html" }
+],
+
+requester: [
+  { text: "New Claim", link: "entry-form.html" },
+  { text: "My Claims", link: "listing.html" }
+],
+
+reviewer: [
+{ text: "New Claim", link: "entry-form.html" },
+  { text: "Pending Reviews", link: "listing.html" },
+  { text: "All Claims", link: "listing.html" }
+],
+
+invoicereviewer: [
+{ text: "New Claim", link: "entry-form.html" },
+  { text: "Invoice Review", link: "listing.html" },
+  { text: "All Claims", link: "listing.html" }
+],
+
+divisionhead: [
+{ text: "New Claim", link: "entry-form.html" },
+  { text: "Division Approval", link: "listing.html" },
+  { text: "All Claims", link: "listing.html" }
+],
+
+accountsreviewer: [
+{ text: "New Claim", link: "entry-form.html" },
+  { text: "Accounts Review", link: "listing.html" },
+  { text: "All Claims", link: "listing.html" }
+],
+
+accountsapprovalhead: [
+{ text: "New Claim", link: "entry-form.html" },
+  { text: "Final Approvals", link: "listing.html" },
+  { text: "All Claims", link: "listing.html" }
+],
+
+approver: [
+{ text: "New Claim", link: "entry-form.html" },
+  { text: "Pending Approvals", link: "listing.html" },
+  { text: "All Claims", link: "listing.html" }
+],
+
+logistics: [
+{ text: "New Claim", link: "entry-form.html" },
+  { text: "Logistics Review", link: "listing.html" },
+  { text: "All Claims", link: "listing.html" }
+]
+};
+
+
+      // Get action list based on role
+      const actions = roleActions[roleKey] || [];
+
+      // If no actions found → show message
+      if (actions.length === 0) {
+        dashContainer.innerHTML = `<p class="text-muted fs-5">No dashboard options available for your role.</p>`;
+        return;
+      }
+
+      // Render dashboard cards
+      actions.forEach(action => {
+        const card = document.createElement("div");
+        card.classList.add("card-btn");
+
+        card.innerHTML = `
+          <h5>${action.text}</h5>
+          <button class="btn-teal" onclick="window.location.href='${action.link}'">Open</button>
+        `;
+
+        dashContainer.appendChild(card);
+      });
+    }
+
+    function logout() {
+      localStorage.removeItem("user");
+      window.location.href = "/effism-pettycash/index.html";
+    }
+  </script>
+
+</body>
+</html>

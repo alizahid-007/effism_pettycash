@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claim Review - EFFISM 1.5</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background-color: #f6fbfd; font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; }
+    .navbar { background-color: #003c4f; color: white; display: flex; justify-content: space-between; align-items: center; padding: 15px 30px; }
+    .navbar h2 { font-size: 1.5rem; margin: 0; color: #ffffff; }
+    .navbar button { background-color: #d9534f; color: white; border: none; border-radius: 6px; padding: 8px 15px; cursor: pointer; }
+    .navbar button:hover { background-color: #c9302c; }
+    .container { max-width: 900px; margin: 30px auto; }
+    .review-card { background: white; border-radius: 12px; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08); padding: 24px; }
+    .review-card h3 { color: #003c4f; margin-bottom: 10px; }
+    .review-card p { margin: 0 0 10px; color: #333; }
+    textarea { width: 100%; min-height: 100px; border-radius: 6px; border: 1px solid #ccc; padding: 10px; resize: vertical; }
+    select { width: 100%; padding: 10px; margin-top: 10px; border-radius: 6px; border: 1px solid #ccc; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+    .btn-edit { background-color: #f0ad4e; color: white; border: none; padding: 10px 16px; border-radius: 6px; }
+    .btn-reject { background-color: #d9534f; color: white; border: none; padding: 10px 16px; border-radius: 6px; }
+    .btn-clarify { background-color: #17a2b8; color: white; border: none; padding: 10px 16px; border-radius: 6px; }
+    .btn-resubmit { background-color: #0d6efd; color: white; border: none; padding: 10px 16px; border-radius: 6px; }
+    .btn-approve { background-color: #5cb85c; color: white; border: none; padding: 10px 16px; border-radius: 6px; }
+    .btn-edit:hover { background-color: #ec971f; }
+    .btn-reject:hover { background-color: #c9302c; }
+    .btn-clarify:hover { background-color: #138496; }
+    .btn-approve:hover { background-color: #449d44; }
+    .attachments a { display: block; color: #007bff; text-decoration: none; margin-top: 5px; }
+    .attachments a:hover { text-decoration: underline; }
+
+    /* responsive table wrapper to avoid horizontal overflow */
+    .table-responsive-wrapper { overflow:auto; max-width:100%; }
+    .small-muted { font-size:0.9rem; color:#666; }
+
+    /* reduce long text wrapping nicely */
+    td, th { white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+    @media (max-width: 768px) {
+      td, th { white-space: normal; }
+    }
+    /* Approval Timeline collapse style */
+    .timeline-toggle-btn {
+      display: block;
+      background: none;
+      border: none;
+      color: #0d6efd;
+      font-weight: bold;
+      text-align: left;
+      font-size: 1.15rem;
+      padding: 0;
+      cursor: pointer;
+      margin-top: 2.2rem;
+      margin-bottom: .5rem;
+      outline: none;
+    }
+    .timeline-toggle-btn .arrow {
+      margin-right: 6px;
+      font-size: 1.1em;
+      transition: transform 0.2s;
+    }
+    .timeline-toggle-btn[aria-expanded="true"] .arrow {
+      transform: rotate(90deg);
+    }
+    .timeline-collapsed {
+      display: none;
+    }
+  </style>
+</head>
+
+<body onload="loadClaimData()">
+  <nav class="navbar">
+    <h2>Claim Review</h2>
+    <button onclick="logout()">Logout</button>
+  </nav>
+
+  <div class="container">
+    <div class="review-card">
+      <h3 id="claimId">Claim Details</h3>
+      <p><strong>Requester:</strong> <span id="claimRequester"></span></p>
+      <p><strong>Amount:</strong> <span id="claimAmount"></span></p>
+      <p><strong>Status:</strong> <span id="claimStatus"></span></p>
+      <p><strong>Date:</strong> <span id="claimDate"></span></p>
+
+      <div id="attachmentList" class="mt-3"></div>
+      <!-- Approval Timeline will be rendered below this div by JS as well (for collapse separation) -->
+      <div id="timelineSection"></div>
+
+      <hr>
+
+      <label class="form-label fw-semibold mt-3">Remarks:</label>
+      <textarea id="remarks" placeholder="Enter your remarks..."></textarea>
+
+      <div class="actions">
+        <!-- buttons are rendered by JS -->
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script> <!-- assumes BASE_URL + getUser(), logout() exist -->
+  <script>
+    // =====================================================
+    // Review page logic (works with approve.php and get_claim_details.php)
+    // =====================================================
+    let claimGlobal = null;
+    let currentUser = null;
+
+    async function loadClaimData() {
+      const claimId = new URLSearchParams(window.location.search).get("id");
+      if (!claimId) {
+        alert("Invalid claim id");
+        window.location.href = "listing.html";
+        return;
+      }
+
+      currentUser = getUser();
+      if (!currentUser) {
+        alert("Session expired. Please login again.");
+        window.location.href = "index.html";
+        return;
+      }
+
+      try {
+        const res = await fetch(`${BASE_URL}/get_claim_details.php?id=${encodeURIComponent(claimId)}`, { credentials: "include" });
+        const data = await res.json();
+
+        if (data.status !== "success") {
+          alert(data.message || "Claim not found");
+          window.location.href = "listing.html";
+          return;
+        }
+
+        const claim = data.claim;
+        claimGlobal = claim;
+
+        document.getElementById("claimId").textContent = "Claim ID: " + claim.claim_no;
+        document.getElementById("claimRequester").textContent = claim.requester_name;
+        document.getElementById("claimAmount").textContent = (claim.total_amount ?? '') + " " + (claim.currency ?? '');
+        document.getElementById("claimStatus").textContent = claim.status;
+        document.getElementById("claimDate").textContent = claim.submitted_at ?? '';
+
+        // render line items + attachments (rewritten for grouped bills)
+        loadLineItems(data.items || []);
+        // Timeline is now rendered collapsed/expandable
+        loadLogs(data.logs || []);
+
+        // render buttons based on role & assignment
+        renderActionButtons();
+
+      } catch (err) {
+        console.error("loadClaimData error", err);
+        alert("Unable to load claim data.");
+      }
+    }
+
+    // ---------------- LINE ITEMS + ATTACHMENTS ----------------
+    // Modified to group items per Bill Number for dynamic multi-line bills
+    function loadLineItems(items) {
+      const container = document.getElementById("attachmentList");
+      let html = `<h5 class="mt-3">Bill Items</h5>`;
+
+      if (!items || items.length === 0) {
+        html += `<p class="small-muted">No bill items found.</p>`;
+        container.innerHTML = html;
+        return;
+      }
+
+      // Group items by bill_number (or similar field). If such field does not exist, fallback to old style.
+      // We'll try uses: bill_no, bill_number, or group id. If missing, group all together as one.
+
+      // Try to detect group field
+      function getBillKey(item) {
+        // try by 'bill_no'/'bill_number' (strings/numbers alike)
+        if ('bill_no' in item) return item.bill_no ?? '';
+        if ('bill_number' in item) return item.bill_number ?? '';
+        if ('group_id' in item) return item.group_id ?? '';
+        // If all are missing, each item is single "bill"
+        return idx + 1;
+      }
+
+      // Actual grouping
+      let groupMap = {};
+      let billOrder = [];
+      items.forEach((item, idx) => {
+        let key = '';
+        if ('bill_no' in item) key = item.bill_no !== undefined && item.bill_no !== null && item.bill_no !== '' ? item.bill_no : '__NO_BILL__'+idx;
+        else if ('bill_number' in item) key = item.bill_number !== undefined && item.bill_number !== null && item.bill_number !== '' ? item.bill_number : '__NO_BILL__'+idx;
+        else if ('group_id' in item) key = item.group_id !== undefined && item.group_id !== null && item.group_id !== '' ? item.group_id : '__NO_BILL__'+idx;
+        else key = '__NO_BILL__'+idx;
+        if (!(key in groupMap)) {
+          groupMap[key] = [];
+          billOrder.push(key);
+        }
+        groupMap[key].push(item);
+      });
+
+      // For each bill group, render Bill Item
+      billOrder.forEach((billKey, billIdx) => {
+        const groupItems = groupMap[billKey];
+        // Show bill number in heading, if exists and consistent
+        let billHeading = `Bill Item ${billIdx+1}`;
+        // Try to show Bill No. in heading if it's present
+        let shownBillNo = '';
+        // Find bill_no field
+        for (const k of ['bill_no','bill_number']) {
+          if (groupItems[0][k]) {
+            shownBillNo = groupItems[0][k];
+            break;
+          }
+        }
+        if (shownBillNo) {
+          billHeading += ` (Bill No: ${escapeHtml(shownBillNo)})`;
+        }
+
+        html += `
+          <div class="mt-3 p-3 border rounded bg-light">
+            <h6 class="fw-bold text-primary">${billHeading}</h6>
+            <div class="table-responsive-wrapper">
+              <table class="table table-bordered mt-2">
+                <thead class="table-dark">
+                  <tr>
+                    <th>Description</th>
+                    <th>Main Category</th>
+                    <th>Sub Category</th>
+                    <th>Amount</th>
+                    <th>Job No.</th>
+                    <th>Company</th>
+                    <th>Division</th>
+                    <th>Attachments</th>
+                  </tr>
+                </thead>
+                <tbody>
+        `;
+        // For each line under this bill, add a table row
+        groupItems.forEach(it => {
+          html += `
+            <tr>
+              <td>${escapeHtml(it.description)}</td>
+              <td>${escapeHtml(it.main_category)}</td>
+              <td>${escapeHtml(it.sub_category)}</td>
+              <td>${escapeHtml(it.amount)}</td>
+              <td>${escapeHtml(it.job_no)}</td>
+              <td>${escapeHtml(it.company)}</td>
+              <td>${escapeHtml(it.division)}</td>
+              <td>
+                ${
+                  it.attachments && it.attachments.length
+                    ? it.attachments.map(a => {
+                        const url = `${BASE_URL.replace('/api','')}/uploads/${encodeURIComponent(a.file_name)}`;
+                        return `<a href="${url}" target="_blank">${a.file_name}</a>`;
+                      }).join("<br>")
+                    : "<span class='text-muted'>No attachment</span>"
+                }
+              </td>
+            </tr>
+          `;
+        });
+
+        html += `
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+    }
+
+    // ---------------- TIMELINE (Collapsible) ----------------
+    function loadLogs(logs) {
+      const timelineSection = document.getElementById("timelineSection");
+      let timelineHtml = `
+        <button class="timeline-toggle-btn" id="timelineToggleBtn" type="button" aria-expanded="false" aria-controls="approvalTimelineContent">
+          <span class="arrow">&#9654;</span>Approval Timeline
+        </button>
+        <div id="approvalTimelineContent" class="timeline-collapsed">
+      `;
+
+      if (!logs || logs.length === 0) {
+        timelineHtml += `<p class="small-muted">No history available.</p>`;
+      } else {
+        timelineHtml += `<ul class="list-group mt-2">`;
+        logs.forEach(l => {
+          timelineHtml += `<li class="list-group-item">
+            <strong>${escapeHtml(l.action)}</strong> — ${escapeHtml(l.note || '')}
+            <br><small>By: ${escapeHtml(l.done_by || 'Unknown')} | ${escapeHtml(l.created_at || '')}</small>
+          </li>`;
+        });
+        timelineHtml += `</ul>`;
+      }
+      timelineHtml += `</div>`;
+
+      timelineSection.innerHTML = timelineHtml;
+
+      // Collapse logic: simple show/hide
+      const btn = document.getElementById("timelineToggleBtn");
+      const content = document.getElementById("approvalTimelineContent");
+
+      btn.addEventListener("click", function () {
+        const expanded = btn.getAttribute("aria-expanded") === "true";
+        btn.setAttribute("aria-expanded", expanded ? "false" : "true");
+        if (expanded) {
+          content.classList.add("timeline-collapsed");
+        } else {
+          content.classList.remove("timeline-collapsed");
+        }
+      });
+    }
+
+    // ---------------- BUTTON LOGIC ----------------
+    function renderActionButtons() {
+      const actionDiv = document.querySelector(".actions");
+      actionDiv.innerHTML = ""; // clear
+
+      const user = currentUser;
+      const claim = claimGlobal;
+
+      if (!user || !claim) {
+        actionDiv.innerHTML = `<p class="small-muted">No actions available.</p>`;
+        return;
+      }
+
+      const isRequester = Number(user.user_id) === Number(claim.requester_id);
+      const isAssigned  = Number(user.user_id) === Number(claim.assigned_to);
+      const status = (claim.status || '').toLowerCase();
+
+      // Requester when Clarification Required -> show Edit + Resubmit
+      if (isRequester && status.includes('clarification')) {
+        actionDiv.innerHTML = `
+          <button class="btn-edit" onclick="editClaim()">Edit</button>
+          <button class="btn-resubmit" onclick="resubmitClaim()">Resubmit</button>
+        `;
+        return;
+      }
+
+      // Assigned approver -> show Approve / Clarify / Reject
+      if (isAssigned && user.role && user.role !== 'requester') {
+        actionDiv.innerHTML = `
+          <button class="btn-reject" onclick="updateClaimStatus('reject')">Reject</button>
+          <button class="btn-clarify" onclick="updateClaimStatus('clarify')">Need Clarification</button>
+          <button class="btn-approve" onclick="updateClaimStatus('approve')">Approve</button>
+        `;
+        return;
+      }
+
+      // Default
+      actionDiv.innerHTML = `<p class="small-muted">No actions available for your role.</p>`;
+    }
+
+    // ---------------- ACTION CALLS ----------------
+    async function updateClaimStatus(action) {
+      const claimId = new URLSearchParams(window.location.search).get("id");
+      const note = document.getElementById("remarks").value.trim();
+
+      try {
+        const res = await fetch(`${BASE_URL}/approve.php`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ claim_id: claimId, action: action, note })
+        });
+        const data = await res.json();
+        alert(data.message || (data.status === 'success' ? 'Success' : 'Error'));
+        if (data.status === 'success') window.location.href = 'dashboard.html';
+      } catch (err) {
+        console.error("updateClaimStatus error", err);
+        alert("Failed to update claim status.");
+      }
+    }
+
+    async function resubmitClaim() {
+      const claimId = new URLSearchParams(window.location.search).get("id");
+      const note = document.getElementById("remarks").value.trim();
+
+      try {
+        const res = await fetch(`${BASE_URL}/approve.php`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ claim_id: claimId, action: "resubmit", note })
+        });
+        const data = await res.json();
+        alert(data.message || (data.status === 'success' ? 'Resubmitted' : 'Error'));
+        if (data.status === 'success') window.location.href = 'dashboard.html';
+      } catch (err) {
+        console.error("resubmitClaim error", err);
+        alert("Failed to resubmit.");
+      }
+    }
+
+    function editClaim() {
+      const claimId = new URLSearchParams(window.location.search).get("id");
+      window.location.href = `entry-form.html?edit=${encodeURIComponent(claimId)}`;
+    }
+
+    // ---------------- helpers ----------------
+    function escapeHtml(unsafe) {
+      return String(unsafe ?? '').replace(/[&<>"']/g, function(m) {
+        return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]);
+      });
+    }
+
+    function getUser() {
+      return JSON.parse(localStorage.getItem('user') || 'null');
+    }
+
+    function logout() {
+      localStorage.removeItem('user');
+      window.location.href = 'index.html';
+    }
+  </script>
+
+</body>
+</html>

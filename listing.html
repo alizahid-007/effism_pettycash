@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claim Listing - EFFISM 1.5</title>
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background-color: #f6fbfd; font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; }
+    .navbar { background-color: #003c4f; color: white; display: flex; justify-content: space-between; align-items: center; padding: 15px 30px; }
+    .navbar h2 { font-size: 1.5rem; margin: 0; color: #ffffff; }
+    .navbar button { background-color: #d9534f; color: white; border: none; border-radius: 6px; padding: 8px 15px; cursor: pointer; }
+    .navbar button:hover { background-color: #c9302c; }
+    .container { max-width: 1100px; margin: 40px auto; padding: 20px; background: white; border-radius: 10px; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08); }
+    .filters-bar { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; margin-bottom: 22px; background: #fffbe7; padding: 16px 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);}
+    .filters-bar label { font-weight: 500; color: #444; margin-bottom: 2px;}
+    .filters-bar .form-control, .filters-bar .form-select { width: 160px; }
+    .filters-bar .form-control[type="search"] { width: 180px; }
+    .record-count-bar { margin-bottom: 10px; font-size: 1.06rem; color:#3e4347; background: #eaf4fa; border-radius:8px; padding:6px 12px; display: flex; align-items:center; min-height:36px;}
+    .record-count-number { font-weight: 600; color: #007bff; margin: 0 4px; }
+    table { width: 100%; border-collapse: collapse; border-radius: 8px; overflow: hidden; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.05); }
+    th { background-color: #b99c2e; color: white; text-align: center; padding: 12px; }
+    td { text-align: center; padding: 10px; border-bottom: 1px solid #eee; }
+    tr:hover { background-color: #f3f7f9; }
+    .status-badge { padding: 5px 10px; border-radius: 5px; color: white; font-weight: 500; display:inline-block; }
+    .status-pending { background: #f0ad4e; }
+    .status-approved { background: #5cb85c; }
+    .status-rejected { background: #d9534f; }
+    .status-finalapproved { background-color: #007bff; color: white; }
+    .btn-view { background-color: #00a5a8; color: white; border: none; border-radius: 4px; padding: 5px 10px; font-size: 0.9rem; }
+    .btn-view:hover { background-color: #008b8f; }
+    @media (max-width: 650px) {
+      .filters-bar { flex-direction: column; gap: 8px; padding: 10px; }
+      .filters-bar .form-control, .filters-bar .form-select { width: 100%; }
+      .record-count-bar { font-size: 0.96rem; padding: 7px 9px;}
+    }
+  </style>
+</head>
+
+<body onload="loadListing()">
+
+  <!-- Navbar -->
+  <nav class="navbar">
+    <h2>Petty Cash Claims</h2>
+    <button onclick="logout()">Logout</button>
+  </nav>
+
+  <div class="container">
+
+    <!-- Filter Bar -->
+    <form class="filters-bar" id="filterForm" onsubmit="event.preventDefault(); loadListing();">
+      <div>
+        <label for="filterDateFrom" class="form-label">From Date</label>
+        <input type="date" id="filterDateFrom" class="form-control" onchange="onFilterChange()" />
+      </div>
+      <div>
+        <label for="filterDateTo" class="form-label">To Date</label>
+        <input type="date" id="filterDateTo" class="form-control" onchange="onFilterChange()" />
+      </div>
+      <div>
+        <label for="filterStatus" class="form-label">Status</label>
+        <select id="filterStatus" class="form-select" onchange="onFilterChange()">
+          <option value="">All</option>
+          <option value="Pending">Pending</option>
+          <option value="Approved">Approved</option>
+          <option value="Final Approved">Final Approved</option>
+          <option value="Rejected">Rejected</option>
+        </select>
+      </div>
+      <div>
+        <label for="searchClaim" class="form-label">Search</label>
+        <input type="search" id="searchClaim" class="form-control" placeholder="Claim ID, Requester..." oninput="onFilterChange()" />
+      </div>
+      <div style="align-self: flex-end">
+        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="resetFilters()">Reset</button>
+      </div>
+    </form>
+
+    <!-- Record Count Bar -->
+    <div id="record-count-bar" class="record-count-bar" style="display: none;">
+      Showing <span class="record-count-number" id="filteredCount">0</span>
+      <span id="recordCountOfTotal"></span>
+    </div>
+
+    <table class="table table-striped align-middle">
+      <thead>
+        <tr>
+          <th>Claim ID</th>
+          <th>Requester</th>
+          <th>Amount</th>
+          <th>Status</th>
+          <th>Date</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="claim-list"></tbody>
+    </table>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    let filterTimer = null;
+    let _allClaimsCache = [];
+
+    function logout() {
+      localStorage.removeItem('user');
+      window.location.href = 'index.html';
+    }
+
+    function getUser() {
+      return JSON.parse(localStorage.getItem('user') || 'null');
+    }
+
+    function getStatusClass(status) {
+      if (!status) return 'status-pending';
+      const s = status.toLowerCase();
+      if (s.includes("final")) return "status-finalapproved";
+      if (s.includes("approved")) return "status-approved";
+      if (s.includes("reject")) return "status-rejected";
+      if (s.includes("pending")) return "status-pending";
+      return "status-pending";
+    }
+
+    function onFilterChange() {
+      // Debounce filter for quick typing
+      if (filterTimer) clearTimeout(filterTimer);
+      filterTimer = setTimeout(applyFilterAndRender, 200);
+    }
+
+    function resetFilters() {
+      document.getElementById('filterDateFrom').value = '';
+      document.getElementById('filterDateTo').value = '';
+      document.getElementById('filterStatus').value = '';
+      document.getElementById('searchClaim').value = '';
+      applyFilterAndRender();
+    }
+
+    function filterClaims(claims) {
+      let from = document.getElementById('filterDateFrom').value;
+      let to = document.getElementById('filterDateTo').value;
+      let status = document.getElementById('filterStatus').value.trim().toLowerCase();
+      let search = document.getElementById('searchClaim').value.trim().toLowerCase();
+
+      return claims.filter(claim => {
+        // --- Date filtering ---
+        let claimDate = (claim.submitted_at || claim.created_at || '').split(' ')[0];
+        if (from && claimDate < from) return false;
+        if (to && claimDate > to) return false;
+
+        // --- Status filtering ---
+        if (status) {
+          let s = (claim.status || '').toLowerCase();
+          if (status === "final approved") {
+            // match 'Final Approved' even if status has more text
+            if (!s.includes('final')) return false;
+          } else if (!s.includes(status)) {
+            return false;
+          }
+        }
+
+        // --- Search filtering (by claim id, claim no, requester name, etc.) ---
+        if (search) {
+          if (
+            !(String(claim.claim_id || '').toLowerCase().includes(search) ||
+              String(claim.claim_no || '').toLowerCase().includes(search) ||
+              String(claim.requester_name || '').toLowerCase().includes(search))
+          ) {
+            return false;
+          }
+        }
+
+        return true;
+      });
+    }
+
+    async function loadListing() {
+      const user = getUser();
+      if (!user) {
+        window.location.href = "index.html";
+        return;
+      }
+
+      const claimList = document.getElementById("claim-list");
+      claimList.innerHTML = `<tr><td colspan="6">Loading...</td></tr>`;
+
+      // Hide record count while loading
+      const recordCountBar = document.getElementById("record-count-bar");
+      if (recordCountBar) recordCountBar.style.display = "none";
+
+      try {
+        const res = await fetch(`${BASE_URL}/list.php`, {
+          method: "GET",
+          credentials: "include",
+        });
+        const data = await res.json();
+        console.log("Claims API response:", data);
+
+        if (data.status !== "success" || !Array.isArray(data.data) || data.data.length === 0) {
+          claimList.innerHTML = `<tr><td colspan="6">No claims found.</td></tr>`;
+          _allClaimsCache = [];
+          updateRecordCount(0, 0);
+          return;
+        }
+        _allClaimsCache = data.data;
+        applyFilterAndRender();
+      } catch (err) {
+        console.error("Error loading claims:", err);
+        claimList.innerHTML = `<tr><td colspan="6">Error loading claims.</td></tr>`;
+        _allClaimsCache = [];
+        updateRecordCount(0, 0);
+      }
+    }
+
+    function updateRecordCount(filteredLen, totalLen) {
+      const bar = document.getElementById("record-count-bar");
+      const filteredCountSpan = document.getElementById("filteredCount");
+      const ofTotalSpan = document.getElementById("recordCountOfTotal");
+
+      if (!bar || !filteredCountSpan || !ofTotalSpan) return;
+
+      filteredCountSpan.textContent = filteredLen;
+      if (typeof totalLen === "number" && filteredLen !== totalLen) {
+        ofTotalSpan.textContent = `of ${totalLen} records`;
+      } else if (typeof totalLen === "number" && filteredLen === totalLen) {
+        ofTotalSpan.textContent = (totalLen === 1 ? "record" : "records");
+      } else {
+        ofTotalSpan.textContent = "";
+      }
+
+      // Show if nonzero or filtered list; otherwise hide
+      bar.style.display = (totalLen > 0) ? "flex" : "none";
+    }
+
+    function applyFilterAndRender() {
+      const claimList = document.getElementById("claim-list");
+      let filtered = filterClaims(_allClaimsCache);
+      updateRecordCount(filtered.length, _allClaimsCache.length);
+
+      if (!filtered || filtered.length === 0) {
+        claimList.innerHTML = `<tr><td colspan="6">No claims found.</td></tr>`;
+        return;
+      }
+      claimList.innerHTML = "";
+      filtered.forEach((claim) => {
+        const tr = document.createElement("tr");
+        const statusClass = getStatusClass(claim.status || '');
+        tr.innerHTML = `
+          <td>${claim.claim_no ?? claim.claim_id}</td>
+          <td>${claim.requester_name}</td>
+          <td>${claim.total_amount}</td>
+          <td><span class="status-badge ${statusClass}">${claim.status}</span></td>
+          <td>${claim.submitted_at ?? claim.created_at}</td>
+          <td><button class="btn-view" onclick="viewClaim('${claim.claim_id}')">View</button></td>
+        `;
+        claimList.appendChild(tr);
+      });
+    }
+
+    function viewClaim(id) {
+      window.location.href = `review.html?id=${id}`;
+    }
+  </script>
+</body>
+</html>

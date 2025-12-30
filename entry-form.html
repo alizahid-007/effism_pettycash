@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Petty Cash Entry - EFFISM 1.5</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <style>
+    body { background: #f6fbfd; }
+    .bill-section { border: 1px solid #ccc; border-radius: 8px; margin-top: 25px; background: #fff; padding: 15px; }
+    .bill-header { background: #b99c2e; color: #fff; padding: 8px 15px; border-radius: 6px 6px 0 0; display: flex; justify-content: space-between; align-items: center; }
+    .bill-header h6 { margin: 0; }
+    .remove-bill { background: #dc3545; border: none; color: white; border-radius: 50%; width: 24px; height: 24px; line-height: 20px; font-weight: bold; cursor: pointer; }
+    .btn-teal { background: #00a5a8; color: white; border: none; }
+    .btn-teal:hover { background: #008b8f; }
+    .btn-cancel { background: #d9534f; color: white; border: none; }
+    .totals { font-weight: bold; color: #d00; }
+  </style>
+</head>
+
+<body onload="initEntryForm()">
+
+<!-- NAVBAR -->
+<nav class="navbar navbar-dark bg-dark px-4">
+  <span class="navbar-brand mb-0 h1">PETTY CASH</span>
+  <div class="d-flex align-items-center">
+    <span id="currentUserDisplay" class="text-white me-3"></span>
+    <button class="btn btn-outline-light btn-sm" onclick="logout()">Logout</button>
+  </div>
+</nav>
+
+<div class="container mt-4 mb-5">
+  <div class="card shadow-sm p-4">
+
+    <!-- TOP HEADER SECTION -->
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Currency</label>
+        <select class="form-select" id="currency" required>
+          <option value="" disabled selected>Select Currency</option>
+          <option value="AED">AED</option>
+          <option value="INR">INR</option>
+          <option value="USD">USD</option>
+        </select>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label">Workflow Type</label>
+        <select id="workflowType" class="form-select" onchange="handleWorkflowType()">
+          <option value="default" selected>Default Workflow</option>
+          <option value="admin">Admin Workflow</option>
+        </select>
+      </div>
+
+      <!-- ADMIN WORKFLOW (ADDED) -->
+      <div class="col-md-4 d-none" id="adminWorkflowBox">
+        <label class="form-label">Select Admin Workflow</label>
+        <select id="adminWorkflow" class="form-select">
+          <option value="">Select Workflow</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="d-flex justify-content-end mt-4">
+      <button class="btn btn-teal" onclick="addBillSection()">Add Bill</button>
+    </div>
+
+    <div id="billsContainer"></div>
+
+    <div class="text-end mt-4">
+      <h5 class="text-danger">Grand Total = <span id="grandTotal">0.00</span></h5>
+    </div>
+
+    <div class="d-flex justify-content-end gap-3 mt-3">
+      <button class="btn btn-cancel px-4" onclick="window.location='dashboard.html'">Cancel</button>
+      <button class="btn btn-success px-4" id="submitClaimBtn">Submit Claim</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ----------------- CONFIG ----------------- */
+const BASE_URL = '/effism-pettycash/api';
+
+/* ----------------- HELPERS ----------------- */
+function getUser() {
+  return JSON.parse(localStorage.getItem("user"));
+}
+function logout() {
+  localStorage.removeItem("user");
+  window.location = "/effism-pettycash/index.html";
+}
+
+/* ----------------- ADMIN WORKFLOW HANDLING (ADDED) ----------------- */
+async function handleWorkflowType() {
+  const type = document.getElementById("workflowType").value;
+  const box = document.getElementById("adminWorkflowBox");
+  const select = document.getElementById("adminWorkflow");
+
+  if (type === "admin") {
+    box.classList.remove("d-none");
+    select.innerHTML = `<option value="">Loading workflows...</option>`;
+
+    try {
+      const res = await fetch(`${BASE_URL}/get_workflows.php`, {
+        credentials: "include"
+      });
+      const data = await res.json();
+
+      select.innerHTML = `<option value="">Select Workflow</option>`;
+
+      if (data.status === "success" && Array.isArray(data.workflows)) {
+        data.workflows.forEach(w => {
+          select.innerHTML += `<option value="${w.workflow_id}">${w.name}</option>`;
+        });
+      } else {
+        select.innerHTML = `<option value="">No workflows found</option>`;
+      }
+
+    } catch (e) {
+      console.error(e);
+      select.innerHTML = `<option value="">Failed to load workflows</option>`;
+    }
+
+  } else {
+    box.classList.add("d-none");
+    select.value = "";
+  }
+}
+
+/* ----------------- DIVISIONS & SUBDIVISIONS ----------------- */
+const divisionMap = {
+  "I&M": ["CCS", "CSS", "I&M General", "Logistics"],
+  "Comon": ["Accounts"]
+};
+
+/* ----------------- CATEGORY LISTS ----------------- */
+const mainCategories = [
+  "Bank Charges", "Photocopy", "DN Consumables", "Equipment Hire",
+  "General Consumables", "Job Expenses", "Gift", "Port Pass",
+  "Printing", "Transport Repair & Service", "Toll",
+  "Administration Expenses", "Coverall Purchase", "Miscellaneous"
+];
+
+const subCategories = {
+  "Bank Charges": ["Cheque Book Fee","Service Charge","Wire Transfer Fee"],
+  "Photocopy": ["Documents","Blueprints","Drawings"],
+  "DN Consumables": ["Stationery","Printer Ink","Paper Rolls"],
+  "Equipment Hire": ["Crane","Forklift","Tools"],
+  "General Consumables": ["Cleaning Items","Safety Gloves","Tape"],
+  "Job Expenses": ["Site Allowance","Meal","Miscellaneous Job Cost"],
+  "Gift": ["Employee Gift","Client Gift","Event Gift"],
+  "Port Pass": ["Port Entry","Temporary Pass","Renewal Fee"],
+  "Printing": ["Office Forms","Reports","Labels"],
+  "Transport Repair & Service": ["Fuel","Tyre Replacement","Servicing","Taxi/Bus Fare"],
+  "Toll": ["Highway Toll","Bridge Toll"],
+  "Administration Expenses": ["Office Rent","Stationery","Telephone Bill"],
+  "Coverall Purchase": ["Uniform","Safety Wear"],
+  "Miscellaneous": ["Other","Uncategorized"]
+};
+
+/* ----------------- INIT ----------------- */
+function initEntryForm() {
+  const user = getUser();
+  if (!user) return window.location = "index.html";
+
+  document.getElementById("currentUserDisplay").textContent =
+    `${user.full_name ?? user.username} (${user.role.toUpperCase()})`;
+
+  addBillSection();
+}
+
+/* ----------------- BILL SECTION ----------------- */
+let billCounter = 0;
+
+function addBillSection() {
+  billCounter++;
+  const container = document.getElementById("billsContainer");
+
+  const section = document.createElement("div");
+  section.className = "bill-section";
+  section.dataset.billId = billCounter;
+
+  section.innerHTML = `
+    <div class="bill-header">
+      <h6>Bill Entry - ${billCounter}</h6>
+      <button class="remove-bill" onclick="removeBillSection(this)">×</button>
+    </div>
+
+    <div class="table-responsive mt-3">
+      <table class="table table-bordered align-middle text-center">
+        <thead style="background:#b99c2e; color:white;">
+          <tr>
+            <th>#</th>
+            <th>Description</th>
+            <th>Main Category</th>
+            <th>Sub Category</th>
+            <th>Amount</th>
+            <th>Division</th>
+            <th>Subdivision</th>
+            <th>Job No.</th>
+            <th>Company</th>
+            <th>Attachment</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody class="bill-body"></tbody>
+      </table>
+      <button class="btn btn-sm btn-outline-primary" onclick="addBillRow(this)">+ Add Row</button>
+    </div>
+  `;
+
+  container.appendChild(section);
+}
+
+function loadSubdivisions(divSelect) {
+  const division = divSelect.value;
+  const subSelect = divSelect.closest("tr").querySelector(".sub-division");
+
+  subSelect.innerHTML = `<option value="">Select Subdivision</option>`;
+  if (!divisionMap[division]) return;
+
+  divisionMap[division].forEach(s => {
+    subSelect.innerHTML += `<option value="${s}">${s}</option>`;
+  });
+}
+
+function addBillRow(button) {
+  const tbody = button.closest(".bill-section").querySelector(".bill-body");
+  const index = tbody.querySelectorAll("tr").length + 1;
+
+  const mainOptions = mainCategories.map(c => `<option value="${c}">${c}</option>`).join('');
+  const divisionOptions = Object.keys(divisionMap)
+    .map(d => `<option value="${d}">${d}</option>`).join('');
+
+  const tr = document.createElement("tr");
+  tr.innerHTML = `
+    <td>${index}</td>
+    <td><input type="text" class="form-control form-control-sm desc"></td>
+
+    <td>
+      <select class="form-select form-select-sm main-cat" onchange="loadSubCategory(this)">
+        <option value="">Select</option>
+        ${mainOptions}
+      </select>
+    </td>
+
+    <td>
+      <select class="form-select form-select-sm sub-cat">
+        <option value="">Select</option>
+      </select>
+    </td>
+
+    <td><input type="number" class="form-control form-control-sm amt" value="0" oninput="updateTotals()"></td>
+
+    <td>
+      <select class="form-select form-select-sm division-select" onchange="loadSubdivisions(this)">
+        <option value="">Select Division</option>
+        ${divisionOptions}
+      </select>
+    </td>
+
+    <td>
+      <select class="form-select form-select-sm sub-division">
+        <option value="">Select Subdivision</option>
+      </select>
+    </td>
+
+    <td><input type="text" class="form-control form-control-sm job"></td>
+    <td><input type="text" class="form-control form-control-sm company"></td>
+
+    <td><input type="file" class="form-control form-control-sm attach" accept="image/*" capture="environment"></td>
+
+    <td><button class="btn btn-sm btn-danger" onclick="removeRow(this)">×</button></td>
+  `;
+
+  tbody.appendChild(tr);
+}
+
+function loadSubCategory(mainSelect) {
+  const cat = mainSelect.value;
+  const subSelect = mainSelect.closest("tr").querySelector(".sub-cat");
+  subSelect.innerHTML = "<option value=''>Select</option>";
+
+  if (!subCategories[cat]) return;
+  subCategories[cat].forEach(s => {
+    subSelect.innerHTML += `<option value="${s}">${s}</option>`;
+  });
+}
+
+function removeRow(btn) {
+  btn.closest("tr").remove();
+  updateTotals();
+}
+
+function removeBillSection(btn) {
+  btn.closest(".bill-section").remove();
+  updateTotals();
+}
+
+function updateTotals() {
+  let total = 0;
+  document.querySelectorAll(".amt").forEach(a => {
+    total += Number(a.value || 0);
+  });
+  document.getElementById("grandTotal").textContent = total.toFixed(2);
+}
+
+/* ------------------ SUBMIT ------------------ */
+document.getElementById("submitClaimBtn").onclick = async () => {
+  updateTotals();
+
+  const user = getUser();
+  const currency = document.getElementById("currency").value;
+  const workflow = document.getElementById("workflowType").value;
+  const adminWorkflowId = document.getElementById("adminWorkflow").value;
+
+  if (!currency) {
+    alert("Please select a currency.");
+    return;
+  }
+
+  if (workflow === "admin" && !adminWorkflowId) {
+    alert("Please select an Admin Workflow.");
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("total_amount", document.getElementById("grandTotal").textContent);
+  formData.append("currency", currency);
+  formData.append("workflow_type", workflow);
+  formData.append("workflow_id", adminWorkflowId);
+  formData.append("creator_role", user.role);
+  formData.append("creator_user_id", user.user_id);
+
+  let items = [];
+  let containsTransport = false;
+
+  document.querySelectorAll(".bill-body tr").forEach((r, i) => {
+    const desc = r.querySelector(".desc").value.trim();
+    const mainCat = r.querySelector(".main-cat").value;
+    const subCat = r.querySelector(".sub-cat").value;
+    const amt = Number(r.querySelector(".amt").value || 0);
+    const division = r.querySelector(".division-select").value;
+    const subdivision = r.querySelector(".sub-division").value;
+    const job = r.querySelector(".job").value.trim();
+    const company = r.querySelector(".company").value.trim();
+    const file = r.querySelector(".attach").files[0];
+
+    if (!desc && amt <= 0) return;
+
+    items.push({
+      index: i,
+      description: desc,
+      main_category: mainCat,
+      sub_category: subCat,
+      division: division,
+      subdivision: subdivision,
+      amount: amt,
+      job_no: job,
+      company: company
+    });
+
+    if (file) formData.append("file_" + i, file);
+
+    if (
+      mainCat.toLowerCase().includes("transport") ||
+      subCat.toLowerCase().includes("taxi") ||
+      subCat.toLowerCase().includes("bus")
+    ) containsTransport = true;
+  });
+
+  formData.append("contains_transport", containsTransport ? "1" : "0");
+  formData.append("items", JSON.stringify(items));
+
+  const res = await fetch(`${BASE_URL}/create.php`, {
+    method: "POST",
+    body: formData
+  });
+
+  const data = await res.json();
+  if (data.status === "success") {
+    alert("Claim created!");
+    window.location = "dashboard.html";
+  } else {
+    alert(data.message || "Create failed.");
+    console.error(data);
+  }
+};
+</script>
+
+</body>
+</html>

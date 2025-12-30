@@ -1,0 +1,176 @@
+<?php
+session_start();
+if (!isset($_SESSION['role_name']) || strtolower($_SESSION['role_name']) !== 'admin') {
+    header('Location: ../index.html');
+    exit;
+}
+?>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Flow Builder - EFFISM</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+<style>
+body { background:#f6fbfd; }
+.canvas {
+  min-height:300px;
+  border:1px dashed #aaa;
+  border-radius:6px;
+  padding:16px;
+  background:#fff;
+}
+.node {
+  padding:10px 14px;
+  border-radius:8px;
+  background:#003c4f;
+  color:#fff;
+  display:inline-block;
+  margin:6px;
+  cursor:grab;
+}
+.slot {
+  display:block;
+  padding:8px;
+  margin-bottom:6px;
+  border-radius:6px;
+  background:#e9ecef;
+  cursor:pointer;
+}
+</style>
+</head>
+
+<body>
+<div class="container py-4">
+
+  <div class="d-flex justify-content-between mb-3">
+    <h4>Admin Flow Builder</h4>
+    <div>
+      <button class="btn btn-outline-primary btn-sm" id="loadBtn">Load</button>
+      <button class="btn btn-primary btn-sm" id="saveBtn">Save</button>
+      <button class="btn btn-danger btn-sm" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-md-3">
+      <div class="card p-3">
+        <h6>Roles</h6>
+        <div id="roleList">Loading...</div>
+      </div>
+    </div>
+
+    <div class="col-md-9">
+      <div class="card p-3">
+        <input id="wfName" class="form-control form-control-sm mb-2" placeholder="Workflow Name">
+        <div id="canvas" class="canvas"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- LOAD MODAL -->
+<div class="modal fade" id="workflowModal">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5>Load Workflow</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <ul id="workflowList" class="list-group"></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+const BASE = location.origin + '/effism-pettycash/api';
+
+function logout() {
+  localStorage.clear();
+  location.href = '/effism-pettycash/index.html';
+}
+
+async function fetchRoles() {
+  const res = await fetch(BASE + '/get_roles.php', { credentials:'include' });
+  const j = await res.json();
+  const list = document.getElementById('roleList');
+  list.innerHTML = '';
+  j.roles.forEach(r => {
+    const div = document.createElement('div');
+    div.className = 'slot';
+    div.textContent = r.role_name;
+    div.onclick = () => addNode(r.role_name);
+    list.appendChild(div);
+  });
+}
+
+function addNode(role) {
+  const d = document.createElement('div');
+  d.className = 'node';
+  d.textContent = role;
+  d.dataset.role = role;
+  d.onclick = () => confirm('Remove step?') && d.remove();
+  document.getElementById('canvas').appendChild(d);
+}
+
+document.getElementById('saveBtn').onclick = async () => {
+  const name = document.getElementById('wfName').value.trim();
+  if (!name) return alert('Workflow name required');
+
+  const steps = [...document.getElementById('canvas').children].map((n,i)=>({
+    role_name: n.dataset.role,
+    role_label: n.textContent,
+    step_order: i+1
+  }));
+
+  const res = await fetch(BASE + '/save_workflow.php', {
+    method:'POST',
+    credentials:'include',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ name, steps })
+  });
+
+  const j = await res.json();
+  alert(j.message);
+};
+
+document.getElementById('loadBtn').onclick = async () => {
+  const res = await fetch(BASE + '/get_workflows.php', { credentials:'include' });
+  const j = await res.json();
+  const list = document.getElementById('workflowList');
+  list.innerHTML = '';
+
+  j.workflows.forEach(wf => {
+    const li = document.createElement('li');
+    li.className = 'list-group-item list-group-item-action';
+    li.textContent = wf.name + ' (' + wf.created_at + ')';
+    li.onclick = () => loadWorkflow(wf.workflow_id);
+    list.appendChild(li);
+  });
+
+  new bootstrap.Modal('#workflowModal').show();
+};
+
+async function loadWorkflow(id) {
+  const res = await fetch(BASE + '/get_workflow.php?id=' + id, { credentials:'include' });
+  const j = await res.json();
+
+  document.getElementById('wfName').value = j.workflow.name;
+  const canvas = document.getElementById('canvas');
+  canvas.innerHTML = '';
+  j.workflow.steps.forEach(s => addNode(s.role_name));
+
+  bootstrap.Modal.getInstance(document.getElementById('workflowModal')).hide();
+}
+
+fetchRoles();
+</script>
+</body>
+</html>
